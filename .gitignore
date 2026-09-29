@@ -1,0 +1,11 @@
+*.db
+*.db-*
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+.venv/
