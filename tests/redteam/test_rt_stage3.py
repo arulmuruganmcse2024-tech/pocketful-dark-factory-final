@@ -222,9 +222,10 @@ def test_historical_overdraft_vs_insufficient(w):
     r = correct(ada, p1["payment_id"], 1, 0, p1["created_at"])
     expect(r, 409, "historical_overdraft")
     assert len(ada.get(f"/payments/{p1['payment_id']}/revisions").json()["revisions"]) == 1
-    # moving the reversal to after p3 is fine
-    expect(correct(ada, p1["payment_id"], 1, 0, iso(now())), 201)
-    assert bob.me()["balance"] == 0 and ada.me()["balance"] == 1000
+    # a correction replaces amount AND effective time: moving p1 to "now" still leaves
+    # bob at -500 between p2 and p3, so this is also a historical overdraft
+    expect(correct(ada, p1["payment_id"], 1, 0, iso(now())), 409, "historical_overdraft")
+    assert bob.me()["balance"] == 500 and ada.me()["balance"] == 500
 
 
 def test_correction_moves_payment_out_of_window(w):
@@ -317,6 +318,6 @@ def test_historical_overdraft_from_hold(w):
     expect(bob.post(f"/authorizations/{a['authorization_id']}/void"), 200)
     time.sleep(0.02)
     expect(ada.post("/payments", json={"to_handle": "bob", "amount": 1}, key=key()), 201)
-    # Reversing p1 at its original time keeps bob's total >= 0 but makes his
-    # available negative while the hold was open.
-    expect(correct(ada, p1["payment_id"], 1, 0, p1["created_at"]), 409, "insufficient_funds")
+    # Reversing p1 at its original time is currently affordable (bob has 601) and keeps
+    # bob's total >= 0, but makes his available negative while the hold was open.
+    expect(correct(ada, p1["payment_id"], 1, 0, p1["created_at"]), 409, "historical_overdraft")
