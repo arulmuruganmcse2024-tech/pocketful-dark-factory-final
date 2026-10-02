@@ -10,7 +10,7 @@ MAX_NOTE = 200
 KEY_MAX = 255
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
 CURRENCIES = {"EUR": 2, "JPY": 0, "BHD": 3}
 
 def now_dt() -> datetime:
@@ -415,11 +415,14 @@ class Store:
             except Exception:
                 exp=None
             closed=parse_dt(a["closed_at"]) if a.get("closed_at") else None
-            # A hold never outlives its expiry, whether or not a write has
-            # persisted the "expired" status yet.
-            if exp and exp<=t:
+            # Capture/void releases are ordinary server events: a known_at view
+            # sees them only after the release event is known. Expiry is the
+            # exception: once authorization creation is known, its deadline is
+            # known too, so a clock expiry may release the hold even when K is
+            # before the expiry instant.
+            if exp and exp<=t and (k is None or created<=k):
                 rem=0
-            if closed and closed<=t and a["status"] in ("captured","voided","expired"):
+            if closed and closed<=t and a["status"] in ("captured","voided") and (k is None or closed<=k):
                 rem=0
             if rem>0:
                 held+=rem
@@ -520,16 +523,64 @@ class Store:
         return p
 
     def check_historical_nonnegative(self,st,overrides=None):
+        """Check historical total *and available* balances at every event boundary.
+
+        Corrections may be effective in the past, so checking only today's
+        balances is insufficient. Money movements and hold lifecycle changes
+        that share an instant are applied as one boundary before validation;
+        this matches the spec's same-instant rule and prevents a false
+        overdraft caused by validating one event before its paired release.
+        """
         overrides=overrides or {}
         cur=copy.deepcopy(st["opening_balances"])
-        events=[]
+        held={uid:0 for uid in st["users"]}
+        events={}
+
+        def bucket(at):
+            return events.setdefault(at, {"money": {}, "hold": {}})
+
+        # Payments move money at the selected revision's effective time.
         for p in st["payments"]:
             r=overrides.get(p["payment_id"],p["revisions"][-1])
-            events.append((parse_dt(r["effective_at"]),p["payment_id"],p,r))
-        events.sort(key=lambda x:(x[0],x[1]))
-        for _,_,p,r in events:
-            cur[p["from_user_id"]]-=r["amount"]
-            cur[p["to_user_id"]]+=r["amount"]
+            at=parse_dt(r["effective_at"])
+            b=bucket(at)
+            b["money"][p["from_user_id"]]=b["money"].get(p["from_user_id"],0)-r["amount"]
+            b["money"][p["to_user_id"]]=b["money"].get(p["to_user_id"],0)+r["amount"]
+
+        # Reconstruct authorization holds at their lifecycle boundaries.
+        # Closed seeded holds need not reconstruct an omitted pre-history, but
+        # any lifecycle timestamps present are still safe to account for.
+        for a in st.get("authorizations",[]):
+            created=parse_dt(a["created_at"])
+            cb=bucket(created)
+            cb["hold"][a["from_user_id"]]=cb["hold"].get(a["from_user_id"],0)+a["amount"]
+
+            captures=[]
+            for pid in a.get("payment_ids",[]):
+                p=next((x for x in st["payments"] if x["payment_id"]==pid),None)
+                if not p:
+                    continue
+                captures.append((parse_dt(p["created_at"]),p["amount"]))
+            for at,amount in captures:
+                b=bucket(at)
+                b["hold"][a["from_user_id"]]=b["hold"].get(a["from_user_id"],0)-amount
+
+            if a.get("status") in ("captured","voided","expired") and a.get("closed_at"):
+                closed=parse_dt(a["closed_at"])
+                captured_before=sum(amount for at,amount in captures if at<=closed)
+                remaining=max(0,a["amount"]-captured_before)
+                if remaining:
+                    b=bucket(closed)
+                    b["hold"][a["from_user_id"]]=b["hold"].get(a["from_user_id"],0)-remaining
+
+        for at in sorted(events):
+            b=events[at]
+            for uid,delta in b["money"].items():
+                cur[uid]+=delta
+            for uid,delta in b["hold"].items():
+                held[uid]=max(0,held.get(uid,0)+delta)
             if any(v<0 for v in cur.values()):
+                return False
+            if any(cur[uid]-held.get(uid,0)<0 for uid in cur):
                 return False
         return True

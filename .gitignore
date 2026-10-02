@@ -8,3 +8,6 @@ __pycache__/
 .env.*
 !.env.example
 .DS_Store
+
+# local development tooling (venv, downloaded harness, run outputs)
+.dev/

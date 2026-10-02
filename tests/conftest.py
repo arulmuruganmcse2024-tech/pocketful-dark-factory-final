@@ -70,11 +70,24 @@ class Service:
     def close(self):
         if self.proc is None:
             return
-        self.proc.terminate()
-        try:
-            self.proc.wait(10)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        # On Windows, terminating the Python parent can leave a child console
+        # process holding SQLite open long enough to break TemporaryDirectory
+        # cleanup. Kill the process tree, then wait for the parent.
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(5)
+        else:
+            self.proc.terminate()
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(5)
         self.tmp.cleanup()
 
 

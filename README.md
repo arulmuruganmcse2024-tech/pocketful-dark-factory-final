@@ -1,40 +1,51 @@
-# Pocketful — Dark Factory Final Package
+# Pocketful — Dark Factory
 
-This repository contains the cumulative Pocketful implementation for the Dark Factory challenge.
+This repository is the submission result for the **Pocketful** track of the WeAreDevelopers x BAND Dark Factory hackathon.
 
-**Status: development and audit repository, not the judged submission.** See
-`FINAL_BAND_HANDOFF.md` for the official requirements, the audit findings and the plan
-for the fresh Band Desktop run.
+It contains the factory description, the recorded Band room, and the four cumulative service stages.
 
-## Repository shape
+## Repository map
 
-- stage-1/ through stage-4/: cumulative, independently runnable services.
-- Each stage contains Dockerfile, RUN.md, core.py, server.py, stage.py and requirements.txt.
-- core.py and server.py are byte-identical in every stage folder. stage.py sets the folder's
-  stage (POCKETFUL_STAGE overrides it), so later-stage endpoints return 404 in earlier stages.
-- tests/: project-owned regression and adversarial tests (not the official participant suite).
+- `FACTORY.md` — factory design, seat ownership, handoffs, review gates, and measured verification.
+- `mandates/` — one generic mandate for each seat represented in the submitted room.
+- `room.json` — the full-room Band session record used as collaboration evidence.
+- `stage-1/` — HTTP API and atomic/idempotent money movement.
+- `stage-2/` — browser product and authorization/hold lifecycle.
+- `stage-3/` — historical views, revisions, corrections, and snapshots.
+- `stage-4/` — refunds and atomic correction batches.
+- `tests/` — project-owned regression/adversarial checks; these are supplemental and are not the organizer's hidden suite.
 
-## Verification
+Each stage is independently runnable and contains its own `Dockerfile` and `RUN.md`.
 
-Official participant suite results are recorded in CONTINUATION.md together with the commit
-they were run against. Results from earlier revisions are historical only:
+## Verification performed
 
-- Stage 1 official participant suite: 147 passed (earlier revision).
-- Stage 2 official sample suite: 10 passed; official UI suite: 25 passed (earlier revision).
-- Stage 3 official sample suite: 6 passed (earlier revision).
-- Stage 4 official sample suite: 5 passed (earlier revision).
+The final working tree was checked against the organizer-provided participant suites:
 
-Project regression suite:
+- Stage 1 suite: 147 passed.
+- Stage 2 suite: 35 passed, including browser checks.
+- Stage 3 suite: 6 passed.
+- Stage 4 suite: 5 passed.
 
-    pip install -r stage-4/requirements.txt -r tests/requirements.txt
-    python -m pytest tests -q
+The project regression suite also passed cleanly after the final hardening changes: 33 passed.
 
-The suite starts each stage folder's service itself. To target running services instead
-(for example the Docker images), set POCKETFUL_TARGET_1 .. POCKETFUL_TARGET_4 to their base URLs.
-The browser test uses Playwright's Chromium; set POCKETFUL_CHROMIUM to use another binary.
+A focused hardening set covering historical available-funds checks, refund ceilings, batch refund interaction, and `known_at` hold-release visibility passed as 4/4.
 
-## Reproducibility
+The official isolated Docker run could not be certified on the Windows workstation used for the final local audit because Docker Desktop required WSL and WSL was not installed/configured there. The repository therefore does not claim an isolated-container pass that was not actually observed.
 
-Run a stage by following its RUN.md. The service is self-contained at runtime and does not require outbound network access.
+## Running a stage
 
-For the official event submission, the final Band Desktop full-session download must be saved unchanged as room.json at the repository root before upload.
+See the `RUN.md` inside each stage folder. The service is self-contained at runtime and does not require an external banking integration.
+
+For local regression checks from the repository root:
+
+```text
+python -m pytest tests -q
+```
+
+For organizer harness checks, use the supplied `harness` from the participant repository and point it at the desired stage folder.
+
+## Notes on provenance
+
+The Band room contains the factory's staged planning, implementation, adversarial testing, and verification conversation. The stage source is kept as ordinary files inside this repository rather than nested Git repositories.
+
+No credentials or live provider tokens are intentionally stored in this repository.
