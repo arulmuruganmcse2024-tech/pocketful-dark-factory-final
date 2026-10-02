@@ -321,12 +321,12 @@ def test_reset_seeded_history_not_replayed(w):
     assert r.json()["request_id"] == "rq_1"
 
 
-@pytest.mark.interpretation("stage 1 only says seeded numbers are consistent; a receiver whose "
-                            "pre-history would be negative is not a stated reset error")
-def test_reset_seeded_payment_receiver_low_balance_accepted(w):
+@pytest.mark.interpretation("seeded history must remain nonnegative at reset")
+def test_reset_seeded_payment_receiver_low_balance_rejected(w):
     fx = fixture(payments=[{"id": "p_1", "from_user_id": "u_ada", "to_user_id": "u_cy",
                             "amount": 5000, "note": "", "visibility": "public"}])
-    expect(reset(fx, expect=None), 204)
+    expect(reset(fx, expect=None), 422, "validation_failed")
+    assert w.ada.me()["balance"] == 10000
 
 
 def test_reset_jpy_and_bhd(w):

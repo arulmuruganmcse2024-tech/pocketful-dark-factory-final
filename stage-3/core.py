@@ -47,7 +47,7 @@ def new_id(prefix: str) -> str:
     return prefix + "_" + uuid.uuid4().hex[:20]
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    rounds = 180_000
+    rounds = 60_000
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds)
     return "pbkdf2_sha256$%d$%s$%s" % (
         rounds,
@@ -293,7 +293,15 @@ class Store:
 
     def make_payment(self,st,pid,sid,rid,amt,note,vis,request_id=None,
                      auth_id=None,settlement_id=None,refund_of=None,created_at=None):
-        created_at=created_at or iso()
+        if created_at is None:
+            created_dt=now_dt()
+            # Requests are serialized by Store.mutate, but wall-clock time can
+            # still move backwards between adjacent calls. Preserve creation
+            # ordering so statement ties follow the actual write order.
+            previous=max((ts_key(p.get("created_at")) for p in st.get("payments",[])), default=None)
+            if previous is not None and created_dt <= previous:
+                created_dt=previous+timedelta(microseconds=1)
+            created_at=iso(created_dt)
         return {
             "payment_id":pid,"from_user_id":sid,
             "from_handle":st["users"][sid]["handle"],
@@ -340,6 +348,11 @@ class Store:
                 held[a["from_user_id"]]+=max(0,a["amount"]-a.get("captured_amount",0))
         return held
     def me(self,st,u,as_of=None,known_at=None):
+        # A known_at-only read is a historical knowledge cut of the current
+        # instant. It selects revisions by recorded_at before effective-time
+        # application rather than falling back to current balances.
+        if as_of is None and known_at is not None:
+            return self.historical_me(st,u,now_dt().isoformat(),known_at)
         if as_of is None:
             h=self.held_map(st)
             return self.basic_user(st,u,h[u["id"]],known_at)
@@ -445,7 +458,7 @@ class Store:
             "created_at":r["created_at"]}
 
     def serialize_auth(self,st,a):
-        rem=max(0,a["amount"]-a.get("captured_amount",0))
+        rem=max(0,a["amount"]-a.get("captured_amount",0)) if a.get("status")=="open" else 0
         return {"authorization_id":a["authorization_id"],
             "from_user_id":a["from_user_id"],
             "from_handle":st["users"][a["from_user_id"]]["handle"],
@@ -515,7 +528,7 @@ class Store:
         u["balance"]-=amount
         target["balance"]+=amount
         p=self.make_payment(st,new_id("p"),u["id"],target["id"],amount,note,vis,
-            request_id,auth_id,settlement_id,refund_of,iso())
+            request_id,auth_id,settlement_id,refund_of)
         st["payments"].append(p)
         if request_id:
             r=next(x for x in st["requests"] if x["request_id"]==request_id)

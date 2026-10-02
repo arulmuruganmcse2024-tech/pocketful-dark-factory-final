@@ -7,6 +7,7 @@ It contains the factory description, the recorded Band room, and the four cumula
 ## Repository map
 
 - `FACTORY.md` — factory design, seat ownership, handoffs, review gates, and measured verification.
+- `VERIFICATION.md` — final audit record with official and project-owned test evidence and environment limitations.
 - `mandates/` — one generic mandate for each seat represented in the submitted room.
 - `room.json` — the full-room Band session record used as collaboration evidence.
 - `stage-1/` — HTTP API and atomic/idempotent money movement.
@@ -26,9 +27,9 @@ The final working tree was checked against the organizer-provided participant su
 - Stage 3 suite: 6 passed.
 - Stage 4 suite: 5 passed.
 
-The project regression suite also passed cleanly after the final hardening changes: 33 passed.
+The project-owned red-team suite passed cleanly after the final hardening changes: Stage 1 `70 passed`, Stage 2 `14 passed`, Stage 3 `17 passed`, and Stage 4 `11 passed`. The focused Stage-1 check for auth-before-idempotency and 50 concurrent logins also passed `2 passed in 10.05s`.
 
-A focused hardening set covering historical available-funds checks, refund ceilings, batch refund interaction, and `known_at` hold-release visibility passed as 4/4.
+See `VERIFICATION.md` for the complete final audit record and the distinction between official participant checks and project-owned adversarial checks.
 
 The official isolated Docker run could not be certified on the Windows workstation used for the final local audit because Docker Desktop required WSL and WSL was not installed/configured there. The repository therefore does not claim an isolated-container pass that was not actually observed.
 

@@ -118,7 +118,9 @@ async def import_state(request: Request):
 async def signup(request: Request):
     obj=await body(request)
     email=obj.get("email"); password=obj.get("password"); display=obj.get("display_name")
-    if not isinstance(email,str) or not EMAIL_RE.fullmatch(email) or not isinstance(password,str) or len(password)<8 or not isinstance(display,str):
+    if not isinstance(email,str) or not isinstance(password,str) or not isinstance(display,str):
+        err(400,"malformed_request")
+    if not EMAIL_RE.fullmatch(email) or len(password)<8:
         err(422,"validation_failed")
     def op(st):
         for u in st["users"].values():
@@ -145,7 +147,7 @@ async def login(request: Request):
     obj=await body(request)
     email=obj.get("email"); password=obj.get("password")
     if not isinstance(email,str) or not isinstance(password,str):
-        err(422,"validation_failed")
+        err(400,"malformed_request")
     def op(st):
         u=next((u for u in st["users"].values() if u["email"]==email),None)
         if u is None or not check_password(password,u["password_hash"]):
@@ -162,15 +164,16 @@ async def me(request: Request):
     return store.me(st,u,as_of,known_at)
 @app.post("/payments")
 async def create_payment(request: Request):
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST","/payments")
         if replay is not None: return JSONResponse(replay,status_code=200)
         if "to_handle" not in obj or "amount" not in obj:
             err(422,"validation_failed")
         if not isinstance(obj["to_handle"],str):
-            err(422,"validation_failed")
+            err(400,"malformed_request")
         amount=store.validate_amount(obj["amount"])
         note=obj.get("note",""); vis=obj.get("visibility","public")
         store.validate_note_visibility(note,vis)
@@ -182,13 +185,16 @@ async def create_payment(request: Request):
 
 @app.post("/requests")
 async def create_request(request: Request):
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST","/requests")
         if replay is not None: return JSONResponse(replay,status_code=200)
         if "payer_handle" not in obj or "amount" not in obj:
             err(422,"validation_failed")
+        if not isinstance(obj["payer_handle"],str):
+            err(400,"malformed_request")
         payer=store.user_by_handle(st,obj["payer_handle"])
         if payer is None: err(404,"not_found")
         if payer["id"]==u["id"]: err(422,"self_request")
@@ -224,9 +230,10 @@ async def list_requests(request: Request):
     return {"requests":rows[offset:offset+limit],"has_more":offset+limit<len(rows)}
 @app.post("/requests/{rid}/pay")
 async def pay_request(rid:str,request: Request):
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST",f"/requests/{rid}/pay")
         if replay is not None: return JSONResponse(replay,status_code=200)
         r=next((x for x in st["requests"] if x["request_id"]==rid),None)
@@ -268,15 +275,18 @@ async def cancel_request(rid:str,request: Request):
     return store.mutate(op)
 @app.post("/splits")
 async def create_split(request: Request):
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST","/splits")
         if replay is not None: return JSONResponse(replay,status_code=200)
         if "amount" not in obj or "participant_handles" not in obj:
             err(422,"validation_failed")
         amount=store.validate_amount(obj["amount"]); handles=obj["participant_handles"]; note=obj.get("note","")
-        if not isinstance(handles,list) or not handles or any(not isinstance(h,str) for h in handles) or len(set(handles))!=len(handles):
+        if not isinstance(handles,list):
+            err(400,"malformed_request")
+        if not handles or any(not isinstance(h,str) for h in handles) or len(set(handles))!=len(handles):
             err(422,"validation_failed")
         if not isinstance(note,str) or len(note)>MAX_NOTE: err(422,"validation_failed")
         users=[]
@@ -310,9 +320,10 @@ async def activity(request: Request):
 
 @app.post("/settlements")
 async def settlement(request: Request):
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST","/settlements")
         if replay is not None: return JSONResponse(replay,status_code=200)
         if u["id"] not in st["settlement_operator_ids"]: err(403,"forbidden")
@@ -354,9 +365,10 @@ def find_payment(st,pid):
 @app.post("/authorizations")
 async def create_authorization(request: Request):
     require_stage(2)
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST","/authorizations")
         if replay is not None: return JSONResponse(replay,status_code=200)
         if "to_handle" not in obj or "amount" not in obj: err(422,"validation_failed")
@@ -382,9 +394,10 @@ async def create_authorization(request: Request):
 @app.post("/authorizations/{aid}/capture")
 async def capture_authorization(aid:str,request: Request):
     require_stage(2)
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST",f"/authorizations/{aid}/capture")
         if replay is not None: return JSONResponse(replay,status_code=200)
         a=next((x for x in st["authorizations"] if x["authorization_id"]==aid),None)
@@ -449,7 +462,7 @@ async def list_authorizations(request: Request):
 def statement_compute(st,u,from_s,to_s,limit,offset,known_at):
     f=parse_dt(from_s) if from_s else datetime.min.replace(tzinfo=timezone.utc)
     t=parse_dt(to_s) if to_s else now_dt()
-    if f>=t: err(422,"validation_failed")
+    if f>t: err(422,"validation_failed")
     events=[]
     for p,r in store.payment_events(st,known_at):
         if u["id"] not in (p["from_user_id"],p["to_user_id"]):
@@ -493,8 +506,11 @@ async def get_statement(request: Request):
         store.mutate(lambda s: s["snapshots"].__setitem__(snap,{"user_id":u["id"],"data":data}))
         base=data.copy()
     entries=base["entries"]
-    return {k:base[k] for k in ("opening_balance","closing_balance","snapshot_range")} | {
+    out = {k:base[k] for k in ("opening_balance","closing_balance","snapshot_range")} | {
         "entries":entries[offset:offset+limit],"has_more":offset+limit<len(entries),"snapshot":snap}
+    if base["snapshot_range"].get("known_at") is not None:
+        out["known_at"] = base["snapshot_range"]["known_at"]
+    return out
 
 @app.get("/payments/{pid}/revisions")
 async def payment_revisions(pid:str,request: Request):
@@ -507,9 +523,10 @@ async def payment_revisions(pid:str,request: Request):
 @app.post("/payments/{pid}/corrections")
 async def correct_payment(pid:str,request: Request):
     require_stage(3)
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST",f"/payments/{pid}/corrections")
         if replay is not None: return JSONResponse(replay,status_code=200)
         p=find_payment(st,pid)
@@ -556,9 +573,10 @@ async def correct_payment(pid:str,request: Request):
 @app.post("/payments/{pid}/refunds")
 async def refund_payment(pid:str,request: Request):
     require_stage(4)
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST",f"/payments/{pid}/refunds")
         if replay is not None: return JSONResponse(replay,status_code=200)
         p=find_payment(st,pid)
@@ -582,9 +600,10 @@ async def refund_payment(pid:str,request: Request):
 @app.post("/correction-batches")
 async def correction_batch(request: Request):
     require_stage(4)
-    obj=await body(request); key=require_write_key(request)
+    obj=await body(request)
     def op(st):
         u=auth_user(st,request)
+        key=require_write_key(request)
         replay=replay_or_none(st,u,key,obj,"POST","/correction-batches")
         if replay is not None: return JSONResponse(replay,status_code=200)
         if u["id"] not in st["settlement_operator_ids"]: err(403,"forbidden")
@@ -758,7 +777,7 @@ async function loadAuths(){
  });
 }
 
-async function render(){const me=await loadMe();window.currentUser=me;window.currentHandle=me?.handle||"";window.currentMu=me?.minor_units??2;window.currentCurrency=me?.currency||"EUR";if(ROUTE==="/login"){authFormsPage("login");return}if(ROUTE==="/signup"){authFormsPage("signup");return}if(!me){location.href="/login";return}if(ROUTE==="/"){app.innerHTML=walletView()+requestForm();wireRequestCreate();document.getElementById("wallet-refresh").onclick=refreshWallet;document.getElementById("pay-form").onsubmit=async e=>{e.preventDefault();dropPayBox("pay-error");dropPayBox("pay-uncertain");try{const body=payBody();const s=sig(body);ensurePayKey(s);paySubmitting=true;const r=await api("/payments",{method:"POST",headers:{"Idempotency-Key":payKey},body:JSON.stringify(body)});const d=await j(r);if(!r.ok)throw new Error(d.error?.code||d.error?.message||"Payment refused");await refreshWallet();paySubmitting=false}catch(ex){paySubmitting=false;if(ex instanceof TypeError){const un=payBox("pay-uncertain","uncertainbox");un.textContent="The outcome is uncertain. Retry this same form without changing a field."}else{const er=payBox("pay-error","errorbox");er.textContent=ex.message}}};
+async function render(){if(ROUTE==="/login"){setUserBar(null);authFormsPage("login");return}if(ROUTE==="/signup"){setUserBar(null);authFormsPage("signup");return}const me=await loadMe();window.currentUser=me;window.currentHandle=me?.handle||"";window.currentMu=me?.minor_units??2;window.currentCurrency=me?.currency||"EUR";if(!me){location.href="/login";return}if(ROUTE==="/"){app.innerHTML=walletView()+requestForm();wireRequestCreate();document.getElementById("wallet-refresh").onclick=refreshWallet;document.getElementById("pay-form").onsubmit=async e=>{e.preventDefault();dropPayBox("pay-error");dropPayBox("pay-uncertain");try{const body=payBody();const s=sig(body);ensurePayKey(s);paySubmitting=true;const r=await api("/payments",{method:"POST",headers:{"Idempotency-Key":payKey},body:JSON.stringify(body)});const d=await j(r);if(!r.ok)throw new Error(d.error?.code||d.error?.message||"Payment refused");await refreshWallet();paySubmitting=false}catch(ex){paySubmitting=false;if(ex instanceof TypeError){const un=payBox("pay-uncertain","uncertainbox");un.textContent="The outcome is uncertain. Retry this same form without changing a field."}else{const er=payBox("pay-error","errorbox");er.textContent=ex.message}}};
 await refreshWallet();return}if(ROUTE==="/requests"){renderRequestsPage();return}if(ROUTE==="/split"){renderSplit();return}if(ROUTE==="/authorizations"){renderAuth();return}}
 render();
 </script></body></html>""".replace("__ROUTE__", page).replace(
