@@ -148,9 +148,24 @@ async def login(request: Request):
     email=obj.get("email"); password=obj.get("password")
     if not isinstance(email,str) or not isinstance(password,str):
         err(400,"malformed_request")
+    demo_login=os.getenv("POCKETFUL_DEMO_LOGIN","").lower() in ("1","true","yes","on")
+    if not email or not password or not EMAIL_RE.fullmatch(email):
+        err(422,"validation_failed")
     def op(st):
-        u=next((u for u in st["users"].values() if u["email"]==email),None)
-        if u is None or not check_password(password,u["password_hash"]):
+        u=next((u for u in st["users"].values() if u["email"].lower()==email.lower()),None)
+        if u is None and demo_login:
+            local=email.split("@",1)[0].lower()
+            base=re.sub(r"[^a-z0-9_]","_",local)[:14].strip("_") or "guest"
+            handle=base
+            if store.user_by_handle(st,handle) is not None:
+                handle=(base[:13]+"_"+secrets.token_hex(3))[:20]
+            uid=new_id("u")
+            display_name=local[:40] or "Guest"
+            u={"id":uid,"email":email,"password_hash":hash_password(password),
+               "display_name":display_name,"handle":handle,"balance":0}
+            st["users"][uid]=u
+            st["opening_balances"][uid]=0
+        elif u is None or (not demo_login and not check_password(password,u["password_hash"])):
             err(401,"unauthenticated")
         tok=secrets.token_urlsafe(32); st["tokens"][tok]=u["id"]
         return {"user_id":u["id"],"display_name":u["display_name"],"token":tok}
