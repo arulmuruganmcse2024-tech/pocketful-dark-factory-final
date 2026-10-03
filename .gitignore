@@ -11,3 +11,7 @@ __pycache__/
 
 # local development tooling (venv, downloaded harness, run outputs)
 .dev/
+
+# lead's live room-plan sources (published as room snapshots)
+/plan.md
+/architecture.json

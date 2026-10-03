@@ -177,7 +177,7 @@ class Store:
         if currency not in CURRENCIES or mu != CURRENCIES[currency]:
             err(422,"validation_failed")
         users_raw=fx.get("users")
-        if not isinstance(users_raw,list) or not users_raw:
+        if not isinstance(users_raw,list):
             err(422,"validation_failed")
         st=self.empty()
         st["currency"]=currency
